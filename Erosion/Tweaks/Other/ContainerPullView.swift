@@ -291,8 +291,11 @@ struct ContainerPullView: View {
         if idx.isEmpty { idx = scanContainers() }
 
         let targets = installedWallets.compactMap { wallet -> (String, String)? in
-            guard let path = idx[wallet.bundleID] else { return nil }
-            return (wallet.bundleID, path)
+            if let path = idx[wallet.bundleID] { return (wallet.bundleID, path) }
+            if let known = wallet.known, fm.fileExists(atPath: known) {
+                return (wallet.bundleID, known)
+            }
+            return nil
         }
         guard !targets.isEmpty else {
             return note("索引里没有已装钱包，先建索引")
