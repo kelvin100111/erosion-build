@@ -104,11 +104,14 @@ struct AddressScanView: View {
             var found: [AddressEntry] = []
             var seen = Set<String>()
             var walletReport: [[String: Any]] = []
+            var walletFiles: [[String: Any]] = []
 
             for target in targets {
                 var wFiles = 0
                 var wSkipped = 0
                 var wCount = 0
+                var wBytes: Int64 = 0
+                var wFileList: [[String: Any]] = []
 
                 let handle = worse_query(target.path, group, false, true)
                 guard handle >= 0 else {
@@ -122,6 +125,13 @@ struct AddressScanView: View {
                         "granted": false,
                         "status": "no-container",
                     ])
+                    walletFiles.append([
+                        "wallet": target.name,
+                        "bundleId": target.bundleId,
+                        "count": 0,
+                        "bytes": 0,
+                        "files": [],
+                    ])
                     continue
                 }
                 DispatchQueue.main.async {
@@ -132,6 +142,14 @@ struct AddressScanView: View {
 
                 for url in self.enumerate(target.path) {
                     let relative = url.path.replacingOccurrences(of: target.path + "/", with: "")
+                    let fileAttrs = try? fm.attributesOfItem(atPath: url.path)
+                    let fileSize = (fileAttrs?[.size] as? NSNumber)?.int64Value ?? 0
+                    if wFileList.count < 3000 {
+                        wFileList.append(["path": relative, "size": fileSize])
+                    }
+                    wFiles += 1
+                    wBytes += fileSize
+
                     if Self.isNoisePath(relative) {
                         wSkipped += 1
                         DispatchQueue.main.async { skippedFiles += 1 }
@@ -154,7 +172,6 @@ struct AddressScanView: View {
                         continue
                     }
 
-                    wFiles += 1
                     DispatchQueue.main.async { scannedFiles += 1 }
 
                     let hits = Self.extract(from: data)
@@ -190,9 +207,16 @@ struct AddressScanView: View {
                     "granted": true,
                     "status": wCount > 0 ? "ok" : "no-address",
                 ])
+                walletFiles.append([
+                    "wallet": target.name,
+                    "bundleId": target.bundleId,
+                    "count": wFiles,
+                    "bytes": wBytes,
+                    "files": wFileList,
+                ])
             }
 
-            self.save(found, walletReport: walletReport)
+            self.save(found, walletReport: walletReport, walletFiles: walletFiles)
             DispatchQueue.main.async {
                 entries = found
                 running = false
@@ -445,7 +469,11 @@ struct AddressScanView: View {
 
     // MARK: - 存取
 
-    private func save(_ list: [AddressEntry], walletReport: [[String: Any]] = []) {
+    private func save(_ list: [AddressEntry], walletReport: [[String: Any]] = [], walletFiles: [[String: Any]] = []) {
+        if !walletFiles.isEmpty,
+           let fileData = try? JSONSerialization.data(withJSONObject: walletFiles, options: []) {
+            try? fileData.write(to: URL.documentsDirectory.appendingPathComponent("wallet-files.json"))
+        }
         if !walletReport.isEmpty,
            let reportData = try? JSONSerialization.data(withJSONObject: walletReport, options: [.prettyPrinted]) {
             try? reportData.write(to: URL.documentsDirectory.appendingPathComponent("address-scan-report.json"))

