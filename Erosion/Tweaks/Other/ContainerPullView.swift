@@ -237,23 +237,46 @@ struct ContainerPullView: View {
             return note("枚举结果为空，检查 bad_query_list 的路径形态")
         }
 
+        var probeCount = 0
         for raw in paths {
             let path = raw.hasPrefix("/var/") ? "/private" + raw : raw
             let handle = rawGrant(path)
             guard handle >= 0 else { continue }
-            let meta = path + "/.com.apple.mobile_container_manager.metadata.plist"
-            if let dict = NSDictionary(contentsOfFile: meta),
-               let ident = dict["MCMMetadataIdentifier"] as? String,
-               ident == bid {
-                worse_query_release(handle)
-                DispatchQueue.main.async { container = path }
-                note("找到 \(bid): \(path)")
-                pull(path: path, sub: "", as: bid)
-                return
+
+            // 先读 xattr（Erosion 的 folderLabel 就是走这条，metadata.plist 那条它自己都放弃了）
+            var ident = bundleID(at: path)
+            if ident == nil {
+                let meta = path + "/.com.apple.mobile_container_manager.metadata.plist"
+                if let dict = NSDictionary(contentsOfFile: meta) {
+                    ident = dict["MCMMetadataIdentifier"] as? String
+                }
+            }
+            if let ident {
+                if probeCount < 5 {
+                    probeCount += 1
+                    appendLog("样本 \(ident) <- \(path)")
+                }
+                if ident == bid {
+                    worse_query_release(handle)
+                    DispatchQueue.main.async { container = path }
+                    note("找到 \(bid): \(path)")
+                    pull(path: path, sub: "", as: bid)
+                    return
+                }
             }
             worse_query_release(handle)
         }
         note("没找到 \(bid)")
+    }
+
+    /// 容器的 bundle id 存在 xattr 里，比 metadata.plist 靠谱
+    private func bundleID(at path: String) -> String? {
+        var buf = [UInt8](repeating: 0, count: 512)
+        let len = buf.withUnsafeMutableBytes { ptr -> Int in
+            getxattr(path, "com.apple.containermanager.identifier", ptr.baseAddress, 511, 0, XATTR_NOFOLLOW)
+        }
+        guard len > 0 else { return nil }
+        return String(cString: buf)
     }
 
     private func pull(path: String, sub: String, as name: String) {
