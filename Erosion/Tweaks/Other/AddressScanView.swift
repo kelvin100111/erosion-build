@@ -124,7 +124,10 @@ struct AddressScanView: View {
                     }
                     let attrs = try? fm.attributesOfItem(atPath: url.path)
                     let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
-                    guard size > 0, size < 2_000_000 else { continue }
+                    let ext = url.pathExtension.lowercased()
+                    let bigAllowed = ["sqlite", "db", "mmkv", "realm", "plist", "json"].contains(ext)
+                    let limit: Int64 = bigAllowed ? 20_000_000 : 2_000_000
+                    guard size > 0, size < limit else { continue }
                     guard let data = fm.contents(atPath: url.path) else { continue }
 
                     DispatchQueue.main.async { scannedFiles += 1 }
@@ -250,7 +253,17 @@ struct AddressScanView: View {
             return dedupe(hits)
         }
 
-        let text = String(decoding: data, as: UTF8.self)
+        if let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) {
+            walk(plist, depth: 0, into: &hits)
+            if !hits.isEmpty { return dedupe(hits) }
+        }
+
+        var text = String(decoding: data, as: UTF8.self)
+        // 二进制 plist / UTF-16 文本：零字节多就换 UTF-16 再试
+        let zeroRatio = Double(data.filter { $0 == 0 }.count) / Double(max(data.count, 1))
+        if zeroRatio > 0.2, let utf16 = String(data: data, encoding: .utf16) {
+            text = utf16
+        }
         for address in matches("(?i)\"selectedAddress\"\\s*:\\s*\"(0x[0-9a-f]{40})\"", in: text) {
             hits.append(Hit(address: address.lowercased(), chain: "EVM", confidence: "high"))
         }
