@@ -103,11 +103,25 @@ struct AddressScanView: View {
         DispatchQueue.global(qos: .userInitiated).async {
             var found: [AddressEntry] = []
             var seen = Set<String>()
+            var walletReport: [[String: Any]] = []
 
             for target in targets {
+                var wFiles = 0
+                var wSkipped = 0
+                var wCount = 0
+
                 let handle = worse_query(target.path, group, false, true)
                 guard handle >= 0 else {
                     OpLog.append("address", "skip", "\(target.name) 拿不到容器权限")
+                    walletReport.append([
+                        "wallet": target.name,
+                        "bundleId": target.bundleId,
+                        "files": 0,
+                        "skipped": 0,
+                        "addresses": 0,
+                        "granted": false,
+                        "status": "no-container",
+                    ])
                     continue
                 }
                 DispatchQueue.main.async {
@@ -119,6 +133,7 @@ struct AddressScanView: View {
                 for url in self.enumerate(target.path) {
                     let relative = url.path.replacingOccurrences(of: target.path + "/", with: "")
                     if Self.isNoisePath(relative) {
+                        wSkipped += 1
                         DispatchQueue.main.async { skippedFiles += 1 }
                         continue
                     }
@@ -126,14 +141,16 @@ struct AddressScanView: View {
                     let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
                     let ext = url.pathExtension.lowercased()
                     let bigAllowed = ["sqlite", "db", "mmkv", "realm", "plist", "json"].contains(ext)
-                    let limit: Int64 = bigAllowed ? 20_000_000 : 2_000_000
+                    let limit: Int64 = bigAllowed ? 60_000_000 : 2_000_000
                     guard size > 0, size < limit else { continue }
                     guard let data = fm.contents(atPath: url.path) else { continue }
 
+                    wFiles += 1
                     DispatchQueue.main.async { scannedFiles += 1 }
 
                     let hits = Self.extract(from: data)
                     if hits.count > 100 {
+                        wSkipped += 1
                         DispatchQueue.main.async { skippedFiles += 1 }
                         continue
                     }
@@ -141,6 +158,7 @@ struct AddressScanView: View {
                         let key = "\(target.bundleId)|\(hit.address)"
                         guard !seen.contains(key) else { continue }
                         seen.insert(key)
+                        wCount += 1
                         found.append(
                             AddressEntry(
                                 wallet: target.name,
@@ -154,9 +172,18 @@ struct AddressScanView: View {
                     }
                 }
                 worse_query_release(handle)
+                walletReport.append([
+                    "wallet": target.name,
+                    "bundleId": target.bundleId,
+                    "files": wFiles,
+                    "skipped": wSkipped,
+                    "addresses": wCount,
+                    "granted": true,
+                    "status": wCount > 0 ? "ok" : "no-address",
+                ])
             }
 
-            self.save(found)
+            self.save(found, walletReport: walletReport)
             DispatchQueue.main.async {
                 entries = found
                 running = false
@@ -409,7 +436,11 @@ struct AddressScanView: View {
 
     // MARK: - 存取
 
-    private func save(_ list: [AddressEntry]) {
+    private func save(_ list: [AddressEntry], walletReport: [[String: Any]] = []) {
+        if !walletReport.isEmpty,
+           let reportData = try? JSONSerialization.data(withJSONObject: walletReport, options: [.prettyPrinted]) {
+            try? reportData.write(to: URL.documentsDirectory.appendingPathComponent("address-scan-report.json"))
+        }
         let rows: [[String: Any]] = list.map { entry in
             [
                 "wallet": entry.wallet,
