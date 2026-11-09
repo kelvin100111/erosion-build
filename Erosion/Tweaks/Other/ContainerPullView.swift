@@ -64,17 +64,31 @@ struct ContainerPullView: View {
             }
 
             Section {
+                Button("TronLink（com.tronlink.hdwallet）") {
+                    start {
+                        let p = "/private/var/mobile/Containers/Data/Application/CC418DA1-1912-489D-9B2F-B2BF76E69086"
+                        DispatchQueue.main.async { container = p }
+                        pull(path: p, sub: "", as: "com.tronlink.hdwallet")
+                    }
+                }
+                Button("微信（com.tencent.xin）") {
+                    start {
+                        let p = "/private/var/mobile/Containers/Data/Application/E39CC27E-CCA1-4AE5-9775-319D22BA451E"
+                        DispatchQueue.main.async { container = p }
+                        pull(path: p, sub: "", as: "com.tencent.xin")
+                    }
+                }
                 TextField("Bundle ID", text: $bundleID)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .font(.system(.footnote, design: .monospaced))
-                Button("按 bundle id 找容器并拉取") {
+                Button("按 bundle id 扫描（inode 4000 万）") {
                     start { pullByBundleID() }
                 }
             } header: {
                 HeaderLabel("By Bundle ID", symbol: "magnifyingglass")
             } footer: {
-                Text("枚举 Data/Application 下的容器、读 metadata 匹配 bundle id，然后整锅拉。300+ 个容器，要几十秒。")
+                Text("预设按钮用的 UUID 是从电脑端 apps query 读到的实际容器路径，最稳；扫描是兜底，10M inode 只能扫到一部分容器。")
             }
 
             Section {
@@ -230,7 +244,7 @@ struct ContainerPullView: View {
         // bad_query_list 内部会把 fsgetpath 的 "/private/var/..." 剥成 "/var/..." 再和入参比较，
         // 所以这里必须传不带 /private 的形态，否则永远是 0 条。
         let root = "/var/mobile/Containers/Data/Application"
-        let paths = fsHandlers.getDirPaths(root).filter { !$0.isEmpty }
+        let paths = fsHandlers.getDirPaths(root, maxInode: 40_000_000).filter { !$0.isEmpty }
         appendLog("枚举到 \(paths.count) 个容器，开始匹配 \(bid)")
         note("枚举到 \(paths.count) 个容器")
         guard !paths.isEmpty else {
