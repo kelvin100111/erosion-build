@@ -10,9 +10,77 @@
 //     /var/mobile/Media 和 /var/mobile/Containers/Data/Application(父目录) 都是 -6
 //  2. App Group 容器拿父目录的 extension 就够了 (递归), 不用逐个 grant
 //  3. 路径必须显式传, 不能靠 @State —— 后台线程读不到主线程刚排队的赋值
+//  4. 钱包这种"一批 app 各拉一次"的场景, 扫一遍 inode 建索引就够了,
+//     之后所有按钮都走 index, 不再重复 40M 次 fsgetpath
 //
 
 import SwiftUI
+
+// MARK: - 钱包预设
+
+struct WalletPreset: Identifiable, Hashable {
+    var id: String { bundleID }
+    let name: String
+    let bundleID: String
+    /// 本机已装钱包的容器路径 (来自 apps query)。换机/重装后 UUID 会变，
+    /// 所以拉之前会用 xattr 校验，不匹配自动回落到扫描。
+    var known: String? = nil
+
+    var installedOnThisDevice: Bool { known != nil }
+}
+
+private func containerPath(_ uuid: String) -> String {
+    "/private/var/mobile/Containers/Data/Application/\(uuid)"
+}
+
+/// 常用钱包预设。bundle id 全部对过 App Store（lookup by bundleId），
+/// 本机已装的 11 个带了容器 UUID，点一下直接拉，不用等扫描。
+let walletPresets: [WalletPreset] = [
+    // ---- 本机已装 ----
+    WalletPreset(name: "MetaMask", bundleID: "io.metamask.MetaMask",
+                 known: containerPath("724F56B3-8E24-4CE8-9E6B-61DD9CFB24CD")),
+    WalletPreset(name: "Trust Wallet", bundleID: "com.sixdays.trust",
+                 known: containerPath("3B02DE05-A091-4897-8DDB-A4BA0411E5AC")),
+    WalletPreset(name: "imToken", bundleID: "im.token.app",
+                 known: containerPath("49128A09-3A1B-4684-95E6-493D5127F427")),
+    WalletPreset(name: "TokenPocket", bundleID: "com.global.wallet.ios",
+                 known: containerPath("C3168EA3-48FD-44E6-AED5-6E2D6A7B5BDA")),
+    WalletPreset(name: "Bitget Wallet", bundleID: "com.bitkeep.os",
+                 known: containerPath("27FE096B-5259-4A53-AA15-F6D675DD99EE")),
+    WalletPreset(name: "Bybit", bundleID: "com.bybit.app",
+                 known: containerPath("7D0041F1-BFDF-4D2C-AEC3-6DA8E69B2DEB")),
+    WalletPreset(name: "MathWallet", bundleID: "com.mathglobal.mathwallet5",
+                 known: containerPath("5967BFCC-54C8-402F-B190-BF1A8C2A2AAE")),
+    WalletPreset(name: "比特派 Bitpie", bundleID: "com.bitpie.wallet",
+                 known: containerPath("4EF89310-5A08-485D-849F-CCE4F61528ED")),
+    WalletPreset(name: "TronLink", bundleID: "com.tronlink.hdwallet",
+                 known: containerPath("CC418DA1-1912-489D-9B2F-B2BF76E69086")),
+    WalletPreset(name: "CoolWallet", bundleID: "com.coolbitx.coolwallets",
+                 known: containerPath("386206E7-6771-42AF-A1D2-A41141F006C6")),
+    WalletPreset(name: "Onchain", bundleID: "com.defi.wallet",
+                 known: containerPath("A82BA947-47B0-45E2-9C92-A00F8F8B79DC")),
+
+    // ---- 常用但本机未装（装了就有容器，扫描可命中）----
+    WalletPreset(name: "OKX Wallet", bundleID: "com.okx.wallet"),
+    WalletPreset(name: "Coinbase Wallet", bundleID: "org.toshi.distribution"),
+    WalletPreset(name: "Phantom", bundleID: "app.phantom"),
+    WalletPreset(name: "Rabby", bundleID: "com.debank.rabby-mobile"),
+    WalletPreset(name: "Rainbow", bundleID: "me.rainbow"),
+    WalletPreset(name: "Uniswap Wallet", bundleID: "com.uniswap.mobile"),
+    WalletPreset(name: "Crypto.com", bundleID: "co.mona.Monaco"),
+    WalletPreset(name: "Ledger Live", bundleID: "com.ledger.live"),
+    WalletPreset(name: "Trezor Suite", bundleID: "io.trezor.suite"),
+    WalletPreset(name: "OneKey", bundleID: "so.onekey.wallet"),
+    WalletPreset(name: "SafePal", bundleID: "walletapp.safepal.io"),
+    WalletPreset(name: "Exodus", bundleID: "exodus-movement.exodus"),
+    WalletPreset(name: "Blockchain.com", bundleID: "com.rainydayapps.Blockchain"),
+    WalletPreset(name: "Zerion", bundleID: "com.dpfbop.zerion"),
+    WalletPreset(name: "FoxWallet", bundleID: "com.foxwallet.app"),
+    WalletPreset(name: "Keplr", bundleID: "com.chainapsis.keplrwallet"),
+    WalletPreset(name: "Solflare", bundleID: "com.solflare.mobile"),
+    WalletPreset(name: "Backpack", bundleID: "app.backpack.mobile"),
+    WalletPreset(name: "Coin98", bundleID: "coin98.crypto.finance.insights"),
+]
 
 struct ContainerPullView: View {
     @EnvironmentObject private var mgr: ErosionManager
@@ -24,6 +92,9 @@ struct ContainerPullView: View {
     @State private var fileCount = 0
     @State private var byteCount: Int64 = 0
 
+    /// bundle id -> 容器路径，扫一次缓存在 Documents/container-index.json
+    @State private var index: [String: String] = [:]
+
     private let notesGroup = "/private/var/mobile/Containers/Shared/AppGroup/5FEEE48A-F19D-48C9-B524-9E40BB0875F1"
     private let appGroupRoot = "/private/var/mobile/Containers/Shared/AppGroup"
 
@@ -32,6 +103,16 @@ struct ContainerPullView: View {
     }
     private var logURL: URL {
         URL.documentsDirectory.appendingPathComponent("cp-log.txt")
+    }
+    private var indexURL: URL {
+        URL.documentsDirectory.appendingPathComponent("container-index.json")
+    }
+
+    private var installedWallets: [WalletPreset] {
+        walletPresets.filter { $0.installedOnThisDevice }
+    }
+    private var otherWallets: [WalletPreset] {
+        walletPresets.filter { !$0.installedOnThisDevice }
     }
 
     var body: some View {
@@ -63,14 +144,52 @@ struct ContainerPullView: View {
                 Text("文件落在 Documents/Pulled/<名字>/，日志在 Documents/cp-log.txt。")
             }
 
+            // MARK: 钱包
             Section {
-                Button("TronLink（com.tronlink.hdwallet）") {
+                Button {
                     start {
-                        let p = "/private/var/mobile/Containers/Data/Application/CC418DA1-1912-489D-9B2F-B2BF76E69086"
-                        DispatchQueue.main.async { container = p }
-                        pull(path: p, sub: "", as: "com.tronlink.hdwallet")
+                        note("开始扫描容器索引…")
+                        _ = scanContainers()
+                    }
+                } label: {
+                    HStack {
+                        Label("建立容器索引（扫一次，之后秒开）", systemImage: "square.stack.3d.up")
+                        Spacer()
+                        if !index.isEmpty {
+                            Text("\(index.count)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
+                Button {
+                    start { pullAllInstalledWallets() }
+                } label: {
+                    Label("拉取本机全部已装钱包（\(installedWallets.count)）", systemImage: "tray.and.arrow.down")
+                }
+            } header: {
+                HeaderLabel("Wallets", symbol: "creditcard")
+            } footer: {
+                Text("每个钱包单独拉一份到 Documents/Pulled/<bundle id>/。索引建好后所有按钮都走缓存，不再重复扫 inode；已装钱包带本机容器 UUID，点一下直接拉。")
+            }
+
+            Section {
+                ForEach(installedWallets) { wallet in
+                    walletRow(wallet)
+                }
+            } header: {
+                HeaderLabel("已安装", symbol: "checkmark.seal")
+            }
+
+            Section {
+                ForEach(otherWallets) { wallet in
+                    walletRow(wallet)
+                }
+            } header: {
+                HeaderLabel("更多钱包（未装则扫不到容器）", symbol: "questionmark.circle")
+            }
+
+            Section {
                 Button("微信（com.tencent.xin）") {
                     start {
                         let p = "/private/var/mobile/Containers/Data/Application/E39CC27E-CCA1-4AE5-9775-319D22BA451E"
@@ -88,13 +207,14 @@ struct ContainerPullView: View {
             } header: {
                 HeaderLabel("By Bundle ID", symbol: "magnifyingglass")
             } footer: {
-                Text("预设按钮用的 UUID 是从电脑端 apps query 读到的实际容器路径，最稳；扫描是兜底，10M inode 只能扫到一部分容器。")
+                Text("预设按钮用的 UUID 是从电脑端 apps query 读到的实际容器路径，最稳；扫描是兜底，40M inode 只能扫到一部分容器。")
             }
 
             Section {
                 LabeledContent("Status", value: status)
                 LabeledContent("Files", value: "\(fileCount)")
                 LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))
+                LabeledContent("Indexed", value: "\(index.count)")
             } header: {
                 HeaderLabel("Progress", symbol: "chart.bar")
             }
@@ -109,6 +229,125 @@ struct ContainerPullView: View {
         }
         .navigationTitle("Container Pull")
         .disabled(running)
+        .onAppear { loadIndex() }
+    }
+
+    // MARK: - 钱包
+
+    @ViewBuilder
+    private func walletRow(_ wallet: WalletPreset) -> some View {
+        Button {
+            start { pullWallet(wallet) }
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(wallet.name)
+                        .foregroundStyle(.primary)
+                    Text(wallet.bundleID)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if index[wallet.bundleID] != nil {
+                    Image(systemName: "bolt.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                }
+            }
+        }
+    }
+
+    private func pullWallet(_ wallet: WalletPreset) {
+        if let cached = index[wallet.bundleID] {
+            note("索引命中 \(wallet.name)")
+            pull(path: cached, sub: "", as: wallet.bundleID)
+            return
+        }
+
+        if let known = wallet.known, rawGrant(known) >= 0 {
+            if bundleID(at: known) == wallet.bundleID {
+                remember(wallet.bundleID, known)
+                note("本机路径命中 \(wallet.name)")
+                pull(path: known, sub: "", as: wallet.bundleID)
+                return
+            }
+        }
+
+        note("索引里没有 \(wallet.name)，开始扫描")
+        let found = scanContainers()
+        if let path = found[wallet.bundleID] {
+            pull(path: path, sub: "", as: wallet.bundleID)
+        } else {
+            note("没找到 \(wallet.name) 的容器（可能没装）")
+        }
+    }
+
+    private func pullAllInstalledWallets() {
+        var idx = index
+        if idx.isEmpty { idx = scanContainers() }
+
+        let targets = installedWallets.compactMap { wallet -> (String, String)? in
+            guard let path = idx[wallet.bundleID] else { return nil }
+            return (wallet.bundleID, path)
+        }
+        guard !targets.isEmpty else {
+            return note("索引里没有已装钱包，先建索引")
+        }
+
+        note("批量拉取 \(targets.count) 个钱包")
+        for (bid, path) in targets {
+            pull(path: path, sub: "", as: bid)
+        }
+        note("批量完成：\(targets.count) 个钱包")
+    }
+
+    // MARK: - 索引
+
+    private func loadIndex() {
+        guard let data = try? Data(contentsOf: indexURL),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+              !dict.isEmpty else { return }
+        index = dict
+        appendLog("载入索引 \(dict.count) 条")
+    }
+
+    private func saveIndex() {
+        let data = (try? JSONSerialization.data(withJSONObject: index, options: [.prettyPrinted])) ?? Data()
+        try? data.write(to: indexURL)
+    }
+
+    private func remember(_ bid: String, _ path: String) {
+        DispatchQueue.main.async {
+            index[bid] = path
+            saveIndex()
+        }
+    }
+
+    /// 扫一遍 Data/Application，把 bundle id -> container 全存下来
+    @discardableResult
+    private func scanContainers() -> [String: String] {
+        let root = "/var/mobile/Containers/Data/Application"
+        let paths = fsHandlers.getDirPaths(root, maxInode: 40_000_000).filter { !$0.isEmpty }
+        appendLog("扫描到 \(paths.count) 个容器目录")
+        note("扫描到 \(paths.count) 个容器")
+
+        var found: [String: String] = [:]
+        for raw in paths {
+            let path = raw.hasPrefix("/var/") ? "/private" + raw : raw
+            let handle = rawGrant(path)
+            guard handle >= 0 else { continue }
+            if let ident = bundleID(at: path) {
+                found[ident] = path
+            }
+            worse_query_release(handle)
+        }
+
+        DispatchQueue.main.async {
+            index = found
+            saveIndex()
+        }
+        note("索引完成：\(found.count) 个容器")
+        return found
     }
 
     // MARK: - 基础
@@ -236,51 +475,21 @@ struct ContainerPullView: View {
         pull(path: target, sub: "", as: "NotesGroup")
     }
 
-    /// 枚举 Data/Application 下所有容器，按 metadata 里的 bundle id 匹配
+    /// 先查索引；没有就扫一遍
     private func pullByBundleID() {
         let bid = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !bid.isEmpty else { return note("bundle id 为空") }
 
-        // bad_query_list 内部会把 fsgetpath 的 "/private/var/..." 剥成 "/var/..." 再和入参比较，
-        // 所以这里必须传不带 /private 的形态，否则永远是 0 条。
-        let root = "/var/mobile/Containers/Data/Application"
-        let paths = fsHandlers.getDirPaths(root, maxInode: 40_000_000).filter { !$0.isEmpty }
-        appendLog("枚举到 \(paths.count) 个容器，开始匹配 \(bid)")
-        note("枚举到 \(paths.count) 个容器")
-        guard !paths.isEmpty else {
-            return note("枚举结果为空，检查 bad_query_list 的路径形态")
+        if let cached = index[bid] {
+            note("索引命中 \(bid)")
+            return pull(path: cached, sub: "", as: bid)
         }
 
-        var probeCount = 0
-        for raw in paths {
-            let path = raw.hasPrefix("/var/") ? "/private" + raw : raw
-            let handle = rawGrant(path)
-            guard handle >= 0 else { continue }
-
-            // 先读 xattr（Erosion 的 folderLabel 就是走这条，metadata.plist 那条它自己都放弃了）
-            var ident = bundleID(at: path)
-            if ident == nil {
-                let meta = path + "/.com.apple.mobile_container_manager.metadata.plist"
-                if let dict = NSDictionary(contentsOfFile: meta) {
-                    ident = dict["MCMMetadataIdentifier"] as? String
-                }
-            }
-            if let ident {
-                if probeCount < 5 {
-                    probeCount += 1
-                    appendLog("样本 \(ident) <- \(path)")
-                }
-                if ident == bid {
-                    worse_query_release(handle)
-                    DispatchQueue.main.async { container = path }
-                    note("找到 \(bid): \(path)")
-                    pull(path: path, sub: "", as: bid)
-                    return
-                }
-            }
-            worse_query_release(handle)
+        let found = scanContainers()
+        guard let path = found[bid] else {
+            return note("没找到 \(bid)")
         }
-        note("没找到 \(bid)")
+        pull(path: path, sub: "", as: bid)
     }
 
     /// 容器的 bundle id 存在 xattr 里，比 metadata.plist 靠谱
