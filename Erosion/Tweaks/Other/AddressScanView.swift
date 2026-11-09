@@ -556,16 +556,16 @@ struct AddressScanView: View {
         }
         let text = String(decoding: data, as: UTF8.self)
         if text.contains("scrypt") {
-            let n = firstInt("\"n\"\\s*:\\s*(\d+)", text)
-            let r = firstInt("\"r\"\\s*:\\s*(\d+)", text)
-            let p = firstInt("\"p\"\\s*:\\s*(\d+)", text)
+            let n = firstInt("\"n\"\\s*:\\s*(\\d+)", text)
+            let r = firstInt("\"r\"\\s*:\\s*(\\d+)", text)
+            let p = firstInt("\"p\"\\s*:\\s*(\\d+)", text)
             if let n {
                 let params: [String: Any] = ["n": n, "r": r ?? 8, "p": p ?? 1]
                 return ("scrypt", params, gradeScrypt(n: n, r: r ?? 8, p: p ?? 1))
             }
         }
         if text.contains("pbkdf2") {
-            if let iterations = firstInt("\"iterations\"\\s*:\\s*(\d+)", text) {
+            if let iterations = firstInt("\"iterations\"\\s*:\\s*(\\d+)", text) {
                 return ("pbkdf2", ["iterations": iterations], gradePBKDF2(iterations))
             }
         }
