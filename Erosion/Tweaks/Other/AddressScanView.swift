@@ -217,6 +217,7 @@ struct AddressScanView: View {
             }
 
             self.save(found, walletReport: walletReport, walletFiles: walletFiles)
+            self.writeKDFReport()
             DispatchQueue.main.async {
                 entries = found
                 running = false
@@ -492,6 +493,145 @@ struct AddressScanView: View {
         if let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted]) {
             try? data.write(to: addressesURL)
         }
+    }
+
+    // MARK: - KDF 强度审计（只读公开参数，不解密）
+
+    private func writeKDFReport() {
+        var rows: [[String: Any]] = []
+        let pulledRoot = URL.documentsDirectory.appendingPathComponent("Pulled", isDirectory: true)
+
+        for preset in walletPresets {
+            let dir = pulledRoot.appendingPathComponent(preset.bundleID, isDirectory: true)
+            guard fm.fileExists(atPath: dir.path) else { continue }
+            guard let enumerator = fm.enumerator(
+                at: dir,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            var count = 0
+            var best: (String, [String: Any], String)?
+            for case let url as URL in enumerator {
+                let lower = url.lastPathComponent.lowercased()
+                let isKeyFile = lower.contains("keystore") || lower.contains("vault")
+                    || lower.contains("keyring") || lower.contains("seed")
+                    || lower.contains("wallet.json")
+                guard isKeyFile else { continue }
+                guard let data = fm.contents(atPath: url.path), data.count < 2_000_000 else { continue }
+                count += 1
+                if let parsed = Self.parseKDF(data) {
+                    best = parsed
+                }
+            }
+            guard count > 0 else { continue }
+
+            var row: [String: Any] = [
+                "wallet": preset.name,
+                "bundleId": preset.bundleID,
+                "files": count,
+            ]
+            if let best {
+                row["kdf"] = best.0
+                row["params"] = best.1
+                row["grade"] = best.2
+                row["summary"] = Self.summary(kdf: best.0, params: best.1)
+            } else {
+                row["kdf"] = "unknown"
+                row["grade"] = "unknown"
+                row["summary"] = "未解析到 kdfparams（可能不是标准 keystore）"
+            }
+            rows.append(row)
+        }
+
+        if let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted]) {
+            try? data.write(to: URL.documentsDirectory.appendingPathComponent("kdf-report.json"))
+        }
+        OpLog.append("kdf", "done", "KDF 审计：\(rows.count) 个钱包")
+    }
+
+    static func parseKDF(_ data: Data) -> (String, [String: Any], String)? {
+        if let object = try? JSONSerialization.jsonObject(with: data) {
+            if let found = walkKDF(object) { return found }
+        }
+        let text = String(decoding: data, as: UTF8.self)
+        if text.contains("scrypt") {
+            let n = firstInt("\"n\"\\s*:\\s*(\d+)", text)
+            let r = firstInt("\"r\"\\s*:\\s*(\d+)", text)
+            let p = firstInt("\"p\"\\s*:\\s*(\d+)", text)
+            if let n {
+                let params: [String: Any] = ["n": n, "r": r ?? 8, "p": p ?? 1]
+                return ("scrypt", params, gradeScrypt(n: n, r: r ?? 8, p: p ?? 1))
+            }
+        }
+        if text.contains("pbkdf2") {
+            if let iterations = firstInt("\"iterations\"\\s*:\\s*(\d+)", text) {
+                return ("pbkdf2", ["iterations": iterations], gradePBKDF2(iterations))
+            }
+        }
+        return nil
+    }
+
+    private static func walkKDF(_ object: Any) -> (String, [String: Any], String)? {
+        if let dict = object as? [String: Any] {
+            if let params = dict["kdfparams"] as? [String: Any], let kdf = dict["kdf"] as? String {
+                if kdf == "scrypt" {
+                    let n = (params["n"] as? NSNumber)?.intValue ?? 0
+                    let r = (params["r"] as? NSNumber)?.intValue ?? 8
+                    let p = (params["p"] as? NSNumber)?.intValue ?? 1
+                    return ("scrypt", params, gradeScrypt(n: n, r: r, p: p))
+                }
+                return (kdf, params, "medium")
+            }
+            if let meta = dict["keyMetadata"] as? [String: Any],
+               let params = meta["params"] as? [String: Any],
+               let algorithm = meta["algorithm"] as? String {
+                let iterations = (params["iterations"] as? NSNumber)?.intValue ?? 0
+                return (algorithm.lowercased(), params, gradePBKDF2(iterations))
+            }
+            for value in dict.values {
+                if let found = walkKDF(value) { return found }
+            }
+        }
+        if let array = object as? [Any] {
+            for value in array {
+                if let found = walkKDF(value) { return found }
+            }
+        }
+        return nil
+    }
+
+    private static func firstInt(_ pattern: String, _ text: String) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return Int(text[range])
+    }
+
+    static func gradeScrypt(n: Int, r: Int, p: Int) -> String {
+        let memory = Double(n) * Double(r) * 128.0
+        if memory >= 64_000_000 { return "strong" }
+        if memory >= 8_000_000 { return "medium" }
+        return "weak"
+    }
+
+    static func gradePBKDF2(_ iterations: Int) -> String {
+        if iterations >= 600_000 { return "strong" }
+        if iterations >= 100_000 { return "medium" }
+        return "weak"
+    }
+
+    private static func summary(kdf: String, params: [String: Any]) -> String {
+        if kdf == "scrypt" {
+            let n = (params["n"] as? NSNumber)?.intValue ?? 0
+            let r = (params["r"] as? NSNumber)?.intValue ?? 0
+            let p = (params["p"] as? NSNumber)?.intValue ?? 0
+            let mem = Double(n) * Double(r) * 128.0 / 1_048_576.0
+            return String(format: "scrypt N=%d r=%d p=%d (~%.0f MB/次)", n, r, p, mem)
+        }
+        let iterations = (params["iterations"] as? NSNumber)?.intValue ?? 0
+        return "pbkdf2 iterations=\(iterations)"
     }
 
     private func loadEntries() -> [AddressEntry] {

