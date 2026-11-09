@@ -505,7 +505,7 @@ struct ContainerPullView: View {
     }
 
     /// 记录一次拉取结果，供电脑端 / 后台读取
-    private func writeManifestEntry(bundleID: String, files: Int, bytes: Int64, top: [[String: Any]]) {
+    private func writeManifestEntry(bundleID: String, files: Int, bytes: Int64, fileList: [[String: Any]] = [], top: [[String: Any]]) {
         var manifest: [String: Any] = [:]
         if let data = try? Data(contentsOf: manifestURL),
            let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -515,6 +515,7 @@ struct ContainerPullView: View {
             "files": files,
             "bytes": bytes,
             "top": top,
+            "fileList": fileList,
             "updatedAt": ISO8601DateFormatter().string(from: Date()),
         ]
         if let data = try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]) {
@@ -560,6 +561,7 @@ struct ContainerPullView: View {
         var copiedFiles = 0
         var copiedBytes: Int64 = 0
         var topStats: [String: (files: Int, bytes: Int64)] = [:]
+        var fileList: [[String: Any]] = []
 
         for case let url as URL in enumerator {
             let isFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile ?? false
@@ -580,6 +582,9 @@ struct ContainerPullView: View {
 
                 copiedFiles += 1
                 copiedBytes += bytes
+                if fileList.count < 20_000 {
+                    fileList.append(["path": rel, "size": bytes])
+                }
                 let topKey = rel.split(separator: "/").first.map(String.init) ?? rel
                 var stat = topStats[topKey] ?? (0, 0)
                 stat.files += 1
@@ -594,6 +599,7 @@ struct ContainerPullView: View {
             bundleID: name,
             files: copiedFiles,
             bytes: copiedBytes,
+            fileList: fileList,
             top: topStats
                 .map { ["path": $0.key, "files": $0.value.files, "bytes": $0.value.bytes] as [String: Any] }
                 .sorted { ($0["bytes"] as? Int64 ?? 0) > ($1["bytes"] as? Int64 ?? 0) }
