@@ -281,10 +281,7 @@ struct AddressScanView: View {
         if let dict = object as? [String: Any] {
             let tokenish = dict["symbol"] != nil || dict["decimals"] != nil ||
                 dict["logoURI"] != nil || dict["chainId"] != nil
-            let keystore = dict["crypto"] != nil || dict["Crypto"] != nil
-            let accountish = dict["id"] != nil || dict["version"] != nil ||
-                dict["type"] != nil || dict["name"] != nil
-            if !tokenish && (keystore || accountish) {
+            if !tokenish {
                 if let address = dict["address"] as? String, let chain = chain(for: address) {
                     hits.append(Hit(address: normalized(address), chain: chain, confidence: "high"))
                 }
