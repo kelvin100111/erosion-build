@@ -7,10 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1541E9D63036B56800C8AF93 /* MobileCoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1541E9D53036B56800C8AF93 /* MobileCoreServices.framework */; };
 		1541E9D33036B49300C8AF93 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 1541E9D23036B49300C8AF93 /* ZIPFoundation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		1541E9D53036B56800C8AF93 /* MobileCoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MobileCoreServices.framework; path = System/Library/Frameworks/MobileCoreServices.framework; sourceTree = SDKROOT; };
 		151457FF302FE21A00DDFE07 /* Erosion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Erosion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -41,6 +43,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1541E9D33036B49300C8AF93 /* ZIPFoundation in Frameworks */,
+				1541E9D63036B56800C8AF93 /* MobileCoreServices.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -67,6 +70,7 @@
 		1541E9D43036B56800C8AF93 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				1541E9D53036B56800C8AF93 /* MobileCoreServices.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
