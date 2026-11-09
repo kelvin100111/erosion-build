@@ -232,8 +232,8 @@ struct AddressScanView: View {
         let lower = relative.lowercased()
         if lower.hasSuffix(".js") || lower.hasSuffix(".mjs") { return true }
         if noiseMarkers.contains(where: { lower.contains($0) }) { return true }
-        if denyMarkers.contains(where: { lower.contains($0) }) { return true }
-        return !allowMarkers.contains(where: { lower.contains($0) })
+        // 白名单只用于加权重，不再是硬门槛：钱包的账户数据可能在任意目录
+        return denyMarkers.contains(where: { lower.contains($0) })
     }
 
     private struct Hit {
