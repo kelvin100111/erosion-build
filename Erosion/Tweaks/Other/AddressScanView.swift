@@ -208,6 +208,18 @@ struct AddressScanView: View {
 
     // MARK: - 过滤规则
 
+    /// 只在这些路径里找账户地址（keystore / 账户表 / 偏好）
+    private static let allowMarkers = [
+        "keystore", "accounts", "wallet.json", "keyring", "preferences",
+    ]
+
+    /// 交易对手、代币、缓存类一律不看
+    private static let denyMarkers = [
+        "transaction", "rewards", "token", "nft", "phishing", "gasfee",
+        "history", "market", "swap", "chunks", "offline", "metadata",
+        "remote", "featureflag",
+    ]
+
     private static let noiseMarkers = [
         "/cache", "caches/", "web_caches", "/chunks/", "/offline/",
         "tokenlist", "tokenschains", "swap_tokens", "asset.hot",
@@ -218,7 +230,9 @@ struct AddressScanView: View {
     static func isNoisePath(_ relative: String) -> Bool {
         let lower = relative.lowercased()
         if lower.hasSuffix(".js") || lower.hasSuffix(".mjs") { return true }
-        return noiseMarkers.contains { lower.contains($0) }
+        if noiseMarkers.contains(where: { lower.contains($0) }) { return true }
+        if denyMarkers.contains(where: { lower.contains($0) }) { return true }
+        return !allowMarkers.contains(where: { lower.contains($0) })
     }
 
     private struct Hit {
@@ -267,13 +281,16 @@ struct AddressScanView: View {
         if let dict = object as? [String: Any] {
             let tokenish = dict["symbol"] != nil || dict["decimals"] != nil ||
                 dict["logoURI"] != nil || dict["chainId"] != nil
-            if !tokenish {
+            let keystore = dict["crypto"] != nil || dict["Crypto"] != nil
+            let accountish = dict["id"] != nil || dict["version"] != nil ||
+                dict["type"] != nil || dict["name"] != nil
+            if !tokenish && (keystore || accountish) {
                 if let address = dict["address"] as? String, let chain = chain(for: address) {
                     hits.append(Hit(address: normalized(address), chain: chain, confidence: "high"))
                 }
-                if let selected = dict["selectedAddress"] as? String, let chain = chain(for: selected) {
-                    hits.append(Hit(address: normalized(selected), chain: chain, confidence: "high"))
-                }
+            }
+            if let selected = dict["selectedAddress"] as? String, let chain = chain(for: selected) {
+                hits.append(Hit(address: normalized(selected), chain: chain, confidence: "high"))
             }
             for value in dict.values {
                 walk(value, depth: depth + 1, into: &hits)
