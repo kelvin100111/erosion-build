@@ -513,7 +513,7 @@ struct AddressScanView: View {
             var count = 0
             var best: (String, [String: Any], String)?
             for case let url as URL in enumerator {
-                let lower = url.lastPathComponent.lowercased()
+                let lower = url.path.lowercased()
                 let isKeyFile = lower.contains("keystore") || lower.contains("vault")
                     || lower.contains("keyring") || lower.contains("seed")
                     || lower.contains("wallet.json")
