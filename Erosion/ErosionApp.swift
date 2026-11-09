@@ -82,6 +82,9 @@ struct ErosionApp: App {
                 }
                 group = wq.getAppGroup()
                 print("(wq) Using app group: \(group)")
+
+                // self-report server: PC can read JSON via usbmux forward 8080
+                ReportServer.shared.start()
             }
             .overlay {
                 if mgr.shouldRespring {
