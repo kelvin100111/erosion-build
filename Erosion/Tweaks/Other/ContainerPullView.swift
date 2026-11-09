@@ -527,8 +527,10 @@ struct ContainerPullView: View {
 
     private func pull(path: String, sub: String, as name: String) {
         let root = sub.isEmpty ? path : path + "/" + sub
+        OpLog.append("pull", "start", "\(name) 请求容器权限")
         let handle = rawGrant(root)
         guard handle >= 0 else {
+            OpLog.append("pull", "fail", "\(name) grant 失败 \(handle): \(root)")
             return note("grant 失败（\(handle)）: \(root)")
         }
         defer { worse_query_release(handle) }
@@ -541,11 +543,11 @@ struct ContainerPullView: View {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
+            OpLog.append("pull", "fail", "\(name) 枚举失败: \(root)")
             return note("枚举失败: \(root)")
         }
 
         appendLog("enumerate \(root) -> \(outDir.path)")
-        OpLog.append("pull", "start", "\(name) 开始拉取")
 
         var copiedFiles = 0
         var copiedBytes: Int64 = 0
