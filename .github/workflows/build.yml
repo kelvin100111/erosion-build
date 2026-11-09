@@ -1,0 +1,57 @@
+name: build-unsigned-ipa
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Erosion/**"
+      - "Erosion.xcodeproj/**"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build:
+    # 需要带 iOS 27 SDK 的 Xcode 26。GitHub 上对应的是 macos-26 runner。
+    # 如果只有 macos-15，把下面一行换成 macos-15 并在第一步里 xcode-select 到 Xcode 26。
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos || true
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Erosion.xcodeproj \
+            -target Erosion \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
+            ASSETCATALOG_COMPILER_OPTIMIZATION=space \
+            | tail -n 40
+
+      - name: Package ipa
+        run: |
+          APP="build/Build/Products/Release-iphoneos/Erosion.app"
+          test -d "$APP"
+          rm -rf Payload Erosion-unsigned.ipa
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry Erosion-unsigned.ipa Payload
+          ls -lh Erosion-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Erosion-unsigned-ipa
+          path: Erosion-unsigned.ipa
+          if-no-files-found: error
