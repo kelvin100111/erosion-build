@@ -227,12 +227,18 @@ struct ContainerPullView: View {
         let bid = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !bid.isEmpty else { return note("bundle id 为空") }
 
-        let root = "/private/var/mobile/Containers/Data/Application"
-        let paths = fsHandlers.getDirPaths(root)
+        // bad_query_list 内部会把 fsgetpath 的 "/private/var/..." 剥成 "/var/..." 再和入参比较，
+        // 所以这里必须传不带 /private 的形态，否则永远是 0 条。
+        let root = "/var/mobile/Containers/Data/Application"
+        let paths = fsHandlers.getDirPaths(root).filter { !$0.isEmpty }
         appendLog("枚举到 \(paths.count) 个容器，开始匹配 \(bid)")
         note("枚举到 \(paths.count) 个容器")
+        guard !paths.isEmpty else {
+            return note("枚举结果为空，检查 bad_query_list 的路径形态")
+        }
 
-        for path in paths {
+        for raw in paths {
+            let path = raw.hasPrefix("/var/") ? "/private" + raw : raw
             let handle = rawGrant(path)
             guard handle >= 0 else { continue }
             let meta = path + "/.com.apple.mobile_container_manager.metadata.plist"
