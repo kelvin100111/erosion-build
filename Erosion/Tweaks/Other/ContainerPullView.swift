@@ -292,7 +292,8 @@ struct ContainerPullView: View {
 
         let targets = installedWallets.compactMap { wallet -> (String, String)? in
             if let path = idx[wallet.bundleID] { return (wallet.bundleID, path) }
-            if let known = wallet.known, fm.fileExists(atPath: known) {
+            if let known = wallet.known {
+                // 没授权前 fm.fileExists 一定是 false（沙箱连 stat 都不给），直接交给 grant 判定
                 return (wallet.bundleID, known)
             }
             return nil
