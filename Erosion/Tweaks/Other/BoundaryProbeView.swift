@@ -186,6 +186,7 @@ struct BoundaryProbeView: View {
 
     private func run() {
         running = true
+        OpLog.append("probe", "start", "权限边界探测开始（\(probeTargets.count) 条路径）")
         finished = 0
         startedAt = Date()
         results = probeTargets.map { ProbeResult(label: $0.label, path: $0.path) }
@@ -224,6 +225,8 @@ struct BoundaryProbeView: View {
             }
 
             writeReport(collected)
+            let granted = collected.filter { $0.granted }.count
+            OpLog.append("probe", "done", "边界探测完成：可读 \(granted) / 拒绝 \(collected.count - granted)")
             DispatchQueue.main.async {
                 running = false
                 finished = collected.count

@@ -545,6 +545,7 @@ struct ContainerPullView: View {
         }
 
         appendLog("enumerate \(root) -> \(outDir.path)")
+        OpLog.append("pull", "start", "\(name) 开始拉取")
 
         var copiedFiles = 0
         var copiedBytes: Int64 = 0
@@ -587,6 +588,7 @@ struct ContainerPullView: View {
                 .map { ["path": $0.key, "files": $0.value.files, "bytes": $0.value.bytes] as [String: Any] }
                 .sorted { ($0["bytes"] as? Int64 ?? 0) > ($1["bytes"] as? Int64 ?? 0) }
         )
+        OpLog.append("pull", "done", "\(name)：\(copiedFiles) 个文件 / \(ByteCountFormatter.string(fromByteCount: copiedBytes, countStyle: .file))")
         note("完成: \(name)（\(copiedFiles) 个文件 / \(ByteCountFormatter.string(fromByteCount: copiedBytes, countStyle: .file))）")
     }
 }

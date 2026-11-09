@@ -55,6 +55,15 @@ enum ReportBuilder {
         return dict
     }
 
+    static func loadAddresses() -> [[String: Any]] {
+        let url = URL.documentsDirectory.appendingPathComponent("addresses.json")
+        guard let data = try? Data(contentsOf: url),
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return []
+        }
+        return rows
+    }
+
     static func json() -> String {
         let index = loadJSON("container-index.json")
         let manifest = loadJSON("pulled-manifest.json")
@@ -108,8 +117,12 @@ enum ReportBuilder {
             ])
         }
 
+        let addresses = loadAddresses()
+
         let payload: [String: Any] = [
             "source": "erosion",
+            "opLog": OpLog.load(limit: 120),
+            "addresses": addresses,
             "reportedAt": ISO8601DateFormatter().string(from: Date()),
             "device": [
                 "name": UIDevice.current.name,
