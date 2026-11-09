@@ -370,11 +370,15 @@ struct ContainerPullView: View {
 
     /// 先按 iOS 27 的默认 flags 试，失败再按 iOS 26 的 alt flags 试
     private func rawGrant(_ path: String) -> Int64 {
-        var handle = worse_query(path, group, false, true)
+        var handle = worse_query(path, group, false, false)
         appendLog("grant(normal) \(path) -> \(handle)")
         if handle < 0 {
-            handle = worse_query(path, group, true, true)
+            handle = worse_query(path, group, true, false)
             appendLog("grant(alt)    \(path) -> \(handle)")
+        }
+        if handle < 0 {
+            handle = worse_query(path, group, false, true)
+            appendLog("grant(create) \(path) -> \(handle)")
         }
         return handle
     }
