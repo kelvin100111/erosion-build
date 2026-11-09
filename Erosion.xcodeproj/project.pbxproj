@@ -8,12 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		1541E9D33036B49300C8AF93 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 1541E9D23036B49300C8AF93 /* ZIPFoundation */; };
-		1541E9D63036B56800C8AF93 /* MobileCoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1541E9D53036B56800C8AF93 /* MobileCoreServices.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		151457FF302FE21A00DDFE07 /* Erosion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Erosion.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		1541E9D53036B56800C8AF93 /* MobileCoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MobileCoreServices.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk/System/Library/Frameworks/MobileCoreServices.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -42,7 +40,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1541E9D63036B56800C8AF93 /* MobileCoreServices.framework in Frameworks */,
 				1541E9D33036B49300C8AF93 /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -70,7 +67,6 @@
 		1541E9D43036B56800C8AF93 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				1541E9D53036B56800C8AF93 /* MobileCoreServices.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
