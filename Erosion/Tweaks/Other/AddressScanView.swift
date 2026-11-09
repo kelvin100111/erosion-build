@@ -227,7 +227,7 @@ struct AddressScanView: View {
         let confidence: String
     }
 
-    static func extract(from data: Data) -> [Hit] {
+    private static func extract(from data: Data) -> [Hit] {
         var hits: [Hit] = []
 
         if let object = try? JSONSerialization.jsonObject(with: data) {
