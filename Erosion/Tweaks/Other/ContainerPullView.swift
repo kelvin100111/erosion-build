@@ -45,6 +45,9 @@ struct ContainerPullView: View {
                 Button("备忘录数据库（Library/NoteStore）") {
                     start { pull(sub: "Library/NoteStore", as: "NoteStore") }
                 }
+                Button("备忘录 App Group（group.com.apple.notes）") {
+                    start { pullNotesGroup() }
+                }
                 Button("整个容器") {
                     start { pull(sub: "", as: "Container") }
                 }
@@ -97,6 +100,39 @@ struct ContainerPullView: View {
             fileCount += 1
             byteCount += size
         }
+    }
+
+    /// 在 /var/mobile/Containers/Shared/AppGroup 里按 metadata 找到 group.com.apple.notes
+    private func pullNotesGroup() {
+        let base = "/var/mobile/Containers/Shared/AppGroup"
+        let baseHandle = rawGrant(base)
+        guard baseHandle >= 0 else { return note("AppGroup grant 失败（\(baseHandle)）") }
+        let dirs = (try? fm.contentsOfDirectory(atPath: base)) ?? []
+        worse_query_release(baseHandle)
+
+        guard !dirs.isEmpty else { return note("AppGroup 列不出来") }
+        print("(cp) AppGroup 有 \(dirs.count) 个容器")
+
+        var target: String?
+        for dir in dirs {
+            let path = base + "/" + dir
+            let handle = rawGrant(path)
+            guard handle >= 0 else { continue }
+            let meta = path + "/.com.apple.mobile_container_manager.metadata.plist"
+            if let dict = NSDictionary(contentsOfFile: meta),
+               let ident = dict["MCMMetadataIdentifier"] as? String,
+               ident == "group.com.apple.notes" {
+                target = path
+                worse_query_release(handle)
+                break
+            }
+            worse_query_release(handle)
+        }
+
+        guard let target else { return note("没找到 group.com.apple.notes") }
+        DispatchQueue.main.async { container = target }
+        note("找到: \(target)")
+        pull(sub: "", as: "NotesGroup")
     }
 
     private func pull(sub: String, as name: String) {
