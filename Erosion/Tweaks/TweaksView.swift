@@ -25,8 +25,9 @@ struct TweaksView: View {
                         NavigationLink("Config Tweaks", destination: ConfigView())
                     }
                     NavigationLink("File Operations", destination: OperationsView())
-                    NavigationLink("Photo Pull", destination: PhotoPullView())
                     NavigationLink("Container Pull", destination: ContainerPullView())
+                    NavigationLink("Boundary Probe", destination: BoundaryProbeView())
+                    NavigationLink("Photo Pull", destination: PhotoPullView())
                 } header: {
                     HeaderLabel("System", symbol: "gear")
                 }
