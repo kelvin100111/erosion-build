@@ -130,7 +130,7 @@ struct AddressScanView: View {
                     DispatchQueue.main.async { scannedFiles += 1 }
 
                     let hits = Self.extract(from: data)
-                    if hits.count > 20 {
+                    if hits.count > 40 {
                         DispatchQueue.main.async { skippedFiles += 1 }
                         continue
                     }
@@ -210,7 +210,8 @@ struct AddressScanView: View {
 
     /// 只在这些路径里找账户地址（keystore / 账户表 / 偏好）
     private static let allowMarkers = [
-        "keystore", "accounts", "wallet.json", "keyring", "preferences",
+        "keystore", "account", "wallet", "keyring", "preferences",
+        "address", "chain", "rctasynclocalstorage", "persiststore",
     ]
 
     /// 交易对手、代币、缓存类一律不看
@@ -272,6 +273,21 @@ struct AddressScanView: View {
         for address in matches("\\bT[1-9A-HJ-NP-Za-km-z]{33}\\b", in: text) {
             hits.append(Hit(address: address, chain: "TRON", confidence: "medium"))
         }
+        for address in matches("\\bbc1[a-z0-9]{11,71}\\b", in: text) {
+            hits.append(Hit(address: address, chain: "BTC", confidence: "medium"))
+        }
+        for address in matches("\\bltc1[a-z0-9]{11,71}\\b", in: text) {
+            hits.append(Hit(address: address, chain: "LTC", confidence: "medium"))
+        }
+        for address in matches("\\bcosmos1[0-9a-z]{38}\\b", in: text) {
+            hits.append(Hit(address: address, chain: "COSMOS", confidence: "medium"))
+        }
+        // 任意链：只认 "address":"..." 这种字段上下文
+        for candidate in matches("(?i)\"(?:address|addr|accountAddress)\"\\s*:\\s*\"([A-Za-z0-9]{25,90})\"", in: text) {
+            if let chain = chain(for: candidate) {
+                hits.append(Hit(address: normalized(candidate), chain: chain, confidence: "medium"))
+            }
+        }
         return dedupe(hits)
     }
 
@@ -288,6 +304,15 @@ struct AddressScanView: View {
             }
             if let selected = dict["selectedAddress"] as? String, let chain = chain(for: selected) {
                 hits.append(Hit(address: normalized(selected), chain: chain, confidence: "high"))
+            }
+            for key in ["addresses", "accounts", "addressesByChain", "publicKey"] {
+                if let list = dict[key] as? [String] {
+                    for address in list {
+                        if let chain = chain(for: address) {
+                            hits.append(Hit(address: normalized(address), chain: chain, confidence: "high"))
+                        }
+                    }
+                }
             }
             for value in dict.values {
                 walk(value, depth: depth + 1, into: &hits)
@@ -308,6 +333,28 @@ struct AddressScanView: View {
         }
         if address.range(of: "^T[1-9A-HJ-NP-Za-km-z]{33}$", options: .regularExpression) != nil {
             return "TRON"
+        }
+        if address.range(of: "^bc1[a-z0-9]{11,71}$", options: .regularExpression) != nil {
+            return "BTC"
+        }
+        if address.range(of: "^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$", options: .regularExpression) != nil {
+            return "BTC"
+        }
+        if address.range(of: "^cosmos1[0-9a-z]{38}$", options: .regularExpression) != nil {
+            return "COSMOS"
+        }
+        if address.range(of: "^r[1-9A-HJ-NP-Za-km-z]{24,34}$", options: .regularExpression) != nil {
+            return "XRP"
+        }
+        if address.range(of: "^ltc1[a-z0-9]{11,71}$", options: .regularExpression) != nil {
+            return "LTC"
+        }
+        if address.range(of: "^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$", options: .regularExpression) != nil {
+            return "DOGE"
+        }
+        // Solana：base58 32-44，容易误报，只在结构化字段里接受
+        if address.range(of: "^[1-9A-HJ-NP-Za-km-z]{32,44}$", options: .regularExpression) != nil {
+            return "SOL"
         }
         return nil
     }
