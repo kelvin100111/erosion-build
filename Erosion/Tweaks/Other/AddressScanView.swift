@@ -130,7 +130,7 @@ struct AddressScanView: View {
                     DispatchQueue.main.async { scannedFiles += 1 }
 
                     let hits = Self.extract(from: data)
-                    if hits.count > 40 {
+                    if hits.count > 100 {
                         DispatchQueue.main.async { skippedFiles += 1 }
                         continue
                     }
@@ -216,9 +216,9 @@ struct AddressScanView: View {
 
     /// 交易对手、代币、缓存类一律不看
     private static let denyMarkers = [
-        "transaction", "rewards", "token", "nft", "phishing", "gasfee",
-        "history", "market", "swap", "chunks", "offline", "metadata",
-        "remote", "featureflag",
+        "transaction", "rewards", "tokenlist", "tokens", "/token",
+        "nft", "phishing", "gasfee", "history", "market", "swap",
+        "chunks", "offline", "metadata", "remote", "featureflag",
     ]
 
     private static let noiseMarkers = [
