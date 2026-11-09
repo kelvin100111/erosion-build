@@ -2,15 +2,13 @@
 //  ContainerPullView.swift
 //  Erosion
 //
-//  把任意 app 的数据容器（或它下面的子目录）复制进自己的 Documents,
+//  把任意 app 的数据容器 / App Group 容器复制进自己的 Documents,
 //  再由电脑端 AFC 取走。
 //
-//  为什么这个能行而相册不行:
-//  worse_query 的 kernel extension 只覆盖容器根目录
-//  (/var/mobile/Containers/Data/Application/* 等, 见上游 README),
-//  /var/mobile/Media 不在里面, 所以打相册必然 -6。
-//
-//  默认目标: 备忘录 com.apple.mobilenotes 的容器 (NoteStore.sqlite 在里面)
+//  两条经验:
+//  1. worse_query 的 kernel extension 只覆盖容器根目录, /var/mobile/Media 不在内 -> -6
+//  2. App Group 容器在 iOS 26 需要 alt flags (0x0000000800000000);
+//     iOS 27 未必一样, 所以这里两种 flags 都试一遍, 并把结果写进 Documents/cp-log.txt
 //
 
 import SwiftUI
@@ -24,8 +22,14 @@ struct ContainerPullView: View {
     @State private var fileCount = 0
     @State private var byteCount: Int64 = 0
 
+    private let notesGroup = "/private/var/mobile/Containers/Shared/AppGroup/5FEEE48A-F19D-48C9-B524-9E40BB0875F1"
+    private let appGroupRoot = "/private/var/mobile/Containers/Shared/AppGroup"
+
     private var dest: URL {
         URL.documentsDirectory.appendingPathComponent("Pulled", isDirectory: true)
+    }
+    private var logURL: URL {
+        URL.documentsDirectory.appendingPathComponent("cp-log.txt")
     }
 
     var body: some View {
@@ -38,23 +42,23 @@ struct ContainerPullView: View {
             } header: {
                 HeaderLabel("Target", symbol: "shippingbox")
             } footer: {
-                Text("默认是备忘录的容器。换别的 app 就填它的 UUID 路径（File Browser → Data Containers 里能看到）。")
+                Text("默认是备忘录的 app 容器。App Group 容器要用下面的预设按钮。")
             }
 
             Section {
-                Button("备忘录数据库（Library/NoteStore）") {
-                    start { pull(sub: "Library/NoteStore", as: "NoteStore") }
-                }
                 Button("备忘录 App Group（group.com.apple.notes）") {
                     start { pullNotesGroup() }
                 }
                 Button("整个容器") {
                     start { pull(sub: "", as: "Container") }
                 }
+                Button("诊断：把各路径的返回码写进 cp-log.txt") {
+                    start { writeProbe() }
+                }
             } header: {
                 HeaderLabel("Pull", symbol: "arrow.down.doc")
             } footer: {
-                Text("文件落在 App 的 Documents/Pulled/<名字>/，之后用电脑端 AFC 拉走。")
+                Text("文件落在 Documents/Pulled/<名字>/；诊断结果在 Documents/cp-log.txt。")
             }
 
             Section {
@@ -69,13 +73,29 @@ struct ContainerPullView: View {
         .disabled(running)
     }
 
-    // MARK: - 底层
+    // MARK: - 基础工具
 
-    /// create_dir = true: 跳过 worse_query 里的 lstat 预检（/var/mobile/* 的 metadata 常被 sandbox 挡）
+    private func appendLog(_ line: String) {
+        print("(cp) \(line)")
+        let data = (line + "\n").data(using: .utf8) ?? Data()
+        if let fh = try? FileHandle(forWritingTo: logURL) {
+            fh.seekToEndOfFile()
+            fh.write(data)
+            try? fh.close()
+        } else {
+            try? data.write(to: logURL)
+        }
+    }
+
+    /// 先按 iOS 27 的默认 flags 试，失败再按 iOS 26 的 alt flags 试
     private func rawGrant(_ path: String) -> Int64 {
-        let needsAltFlags = path.contains("/var/mobile/Containers/Shared/AppGroup")
-            && ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 26
-        return worse_query(path, group, needsAltFlags, true)
+        var handle = worse_query(path, group, false, true)
+        appendLog("grant(normal) \(path) -> \(handle)")
+        if handle < 0 {
+            handle = worse_query(path, group, true, true)
+            appendLog("grant(alt)    \(path) -> \(handle)")
+        }
+        return handle
     }
 
     private func start(_ work: @escaping () -> Void) {
@@ -84,6 +104,7 @@ struct ContainerPullView: View {
         status = "Running…"
         fileCount = 0
         byteCount = 0
+        appendLog("=== start \(Date()) ===")
         DispatchQueue.global(qos: .userInitiated).async {
             work()
             DispatchQueue.main.async { running = false }
@@ -91,7 +112,7 @@ struct ContainerPullView: View {
     }
 
     private func note(_ text: String) {
-        print("(cp) \(text)")
+        appendLog(text)
         DispatchQueue.main.async { status = text }
     }
 
@@ -102,36 +123,69 @@ struct ContainerPullView: View {
         }
     }
 
-    /// 在 /var/mobile/Containers/Shared/AppGroup 里按 metadata 找到 group.com.apple.notes
+    // MARK: - 诊断
+
+    private func writeProbe() {
+        let paths = [
+            appGroupRoot,
+            notesGroup,
+            container,
+            container + "/Documents",
+            "/private/var/mobile/Containers/Data/Application",
+            "/var/mobile/Media/DCIM",
+        ]
+        var report = "\n--- probe \(Date()) ---\n"
+        for path in paths {
+            for alt in [false, true] {
+                let h = worse_query(path, group, alt, true)
+                report += "\(alt ? "alt   " : "normal")  \(h)\t\(path)\n"
+                if h >= 0 { worse_query_release(h) }
+            }
+        }
+        let data = report.data(using: .utf8) ?? Data()
+        try? data.write(to: URL.documentsDirectory.appendingPathComponent("probe.txt"))
+        note("诊断写入 probe.txt")
+    }
+
+    // MARK: - 拉取
+
     private func pullNotesGroup() {
-        let base = "/var/mobile/Containers/Shared/AppGroup"
-        let baseHandle = rawGrant(base)
-        guard baseHandle >= 0 else { return note("AppGroup grant 失败（\(baseHandle)）") }
-        let dirs = (try? fm.contentsOfDirectory(atPath: base)) ?? []
-        worse_query_release(baseHandle)
-
-        guard !dirs.isEmpty else { return note("AppGroup 列不出来") }
-        print("(cp) AppGroup 有 \(dirs.count) 个容器")
-
         var target: String?
-        for dir in dirs {
-            let path = base + "/" + dir
-            let handle = rawGrant(path)
-            guard handle >= 0 else { continue }
-            let meta = path + "/.com.apple.mobile_container_manager.metadata.plist"
-            if let dict = NSDictionary(contentsOfFile: meta),
-               let ident = dict["MCMMetadataIdentifier"] as? String,
-               ident == "group.com.apple.notes" {
-                target = path
+        for candidate in [notesGroup, appGroupRoot] {
+            let handle = rawGrant(candidate)
+            if handle >= 0 {
+                target = candidate
                 worse_query_release(handle)
                 break
+            }
+        }
+
+        if target == nil {
+            // 父目录拿到了, 再在里面找 group.com.apple.notes
+            let handle = rawGrant(appGroupRoot)
+            guard handle >= 0 else { return note("AppGroup 拿不到 extension, 见 cp-log.txt") }
+            if let dirs = try? fm.contentsOfDirectory(atPath: appGroupRoot) {
+                for dir in dirs {
+                    let path = appGroupRoot + "/" + dir
+                    let h = rawGrant(path)
+                    guard h >= 0 else { continue }
+                    let meta = path + "/.com.apple.mobile_container_manager.metadata.plist"
+                    if let dict = NSDictionary(contentsOfFile: meta),
+                       let ident = dict["MCMMetadataIdentifier"] as? String,
+                       ident == "group.com.apple.notes" {
+                        target = path
+                        worse_query_release(h)
+                        break
+                    }
+                    worse_query_release(h)
+                }
             }
             worse_query_release(handle)
         }
 
         guard let target else { return note("没找到 group.com.apple.notes") }
         DispatchQueue.main.async { container = target }
-        note("找到: \(target)")
+        note("目标: \(target)")
         pull(sub: "", as: "NotesGroup")
     }
 
@@ -148,21 +202,19 @@ struct ContainerPullView: View {
 
         guard let enumerator = fm.enumerator(
             at: URL(fileURLWithPath: root),
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
             return note("枚举失败: \(root)")
         }
 
-        print("(cp) root=\(root) -> \(outDir.path)")
+        appendLog("enumerate \(root) -> \(outDir.path)")
 
         for case let url as URL in enumerator {
             let isFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile ?? false
             guard isFile else { continue }
 
-            let rel = url.path.hasPrefix(root + "/")
-                ? String(url.path.dropFirst(root.count + 1))
-                : url.lastPathComponent
+            let rel = url.path.hasPrefix(root + "/") ? String(url.path.dropFirst(root.count + 1)) : url.lastPathComponent
             let dst = outDir.appendingPathComponent(rel)
 
             do {
@@ -172,7 +224,7 @@ struct ContainerPullView: View {
                 let size = (try? fm.attributesOfItem(atPath: dst.path))?[.size] as? NSNumber
                 bump(size?.int64Value ?? 0)
             } catch {
-                print("(cp) copy failed \(url.path): \(error.localizedDescription)")
+                appendLog("copy failed \(url.path): \(error.localizedDescription)")
             }
         }
         note("完成: \(name)（\(fileCount) 个文件）")
