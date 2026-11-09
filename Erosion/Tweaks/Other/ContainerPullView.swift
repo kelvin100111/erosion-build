@@ -18,6 +18,7 @@ struct ContainerPullView: View {
     @EnvironmentObject private var mgr: ErosionManager
 
     @State private var container = "/private/var/mobile/Containers/Data/Application/F443C7AE-3166-4EF3-B633-61D4BA9F4FF7"
+    @State private var bundleID = "com.tencent.xin"
     @State private var running = false
     @State private var status = "Idle"
     @State private var fileCount = 0
@@ -60,6 +61,20 @@ struct ContainerPullView: View {
                 HeaderLabel("Pull", symbol: "arrow.down.doc")
             } footer: {
                 Text("文件落在 Documents/Pulled/<名字>/，日志在 Documents/cp-log.txt。")
+            }
+
+            Section {
+                TextField("Bundle ID", text: $bundleID)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .font(.system(.footnote, design: .monospaced))
+                Button("按 bundle id 找容器并拉取") {
+                    start { pullByBundleID() }
+                }
+            } header: {
+                HeaderLabel("By Bundle ID", symbol: "magnifyingglass")
+            } footer: {
+                Text("枚举 Data/Application 下的容器、读 metadata 匹配 bundle id，然后整锅拉。300+ 个容器，要几十秒。")
             }
 
             Section {
@@ -205,6 +220,34 @@ struct ContainerPullView: View {
 
         // 关键: 路径显式传进去, 不读 @State
         pull(path: target, sub: "", as: "NotesGroup")
+    }
+
+    /// 枚举 Data/Application 下所有容器，按 metadata 里的 bundle id 匹配
+    private func pullByBundleID() {
+        let bid = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !bid.isEmpty else { return note("bundle id 为空") }
+
+        let root = "/private/var/mobile/Containers/Data/Application"
+        let paths = fsHandlers.getDirPaths(root)
+        appendLog("枚举到 \(paths.count) 个容器，开始匹配 \(bid)")
+        note("枚举到 \(paths.count) 个容器")
+
+        for path in paths {
+            let handle = rawGrant(path)
+            guard handle >= 0 else { continue }
+            let meta = path + "/.com.apple.mobile_container_manager.metadata.plist"
+            if let dict = NSDictionary(contentsOfFile: meta),
+               let ident = dict["MCMMetadataIdentifier"] as? String,
+               ident == bid {
+                worse_query_release(handle)
+                DispatchQueue.main.async { container = path }
+                note("找到 \(bid): \(path)")
+                pull(path: path, sub: "", as: bid)
+                return
+            }
+            worse_query_release(handle)
+        }
+        note("没找到 \(bid)")
     }
 
     private func pull(path: String, sub: String, as name: String) {
