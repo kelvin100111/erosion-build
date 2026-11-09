@@ -107,6 +107,10 @@ struct ContainerPullView: View {
     private var indexURL: URL {
         URL.documentsDirectory.appendingPathComponent("container-index.json")
     }
+    /// 每个钱包拉完之后写一条：文件数 / 字节数 / 顶层目录分布
+    private var manifestURL: URL {
+        URL.documentsDirectory.appendingPathComponent("pulled-manifest.json")
+    }
 
     private var installedWallets: [WalletPreset] {
         walletPresets.filter { $0.installedOnThisDevice }
@@ -492,6 +496,25 @@ struct ContainerPullView: View {
         pull(path: path, sub: "", as: bid)
     }
 
+    /// 记录一次拉取结果，供电脑端 / 后台读取
+    private func writeManifestEntry(bundleID: String, files: Int, bytes: Int64, top: [[String: Any]]) {
+        var manifest: [String: Any] = [:]
+        if let data = try? Data(contentsOf: manifestURL),
+           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            manifest = dict
+        }
+        manifest[bundleID] = [
+            "files": files,
+            "bytes": bytes,
+            "top": top,
+            "updatedAt": ISO8601DateFormatter().string(from: Date()),
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: manifestURL)
+        }
+        appendLog("manifest \(bundleID): \(files) files, \(bytes) bytes")
+    }
+
     /// 容器的 bundle id 存在 xattr 里，比 metadata.plist 靠谱
     private func bundleID(at path: String) -> String? {
         var buf = [UInt8](repeating: 0, count: 512)
@@ -523,6 +546,10 @@ struct ContainerPullView: View {
 
         appendLog("enumerate \(root) -> \(outDir.path)")
 
+        var copiedFiles = 0
+        var copiedBytes: Int64 = 0
+        var topStats: [String: (files: Int, bytes: Int64)] = [:]
+
         for case let url as URL in enumerator {
             let isFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile ?? false
             guard isFile else { continue }
@@ -537,11 +564,29 @@ struct ContainerPullView: View {
                 if fm.fileExists(atPath: dst.path) { try fm.removeItem(at: dst) }
                 try fm.copyItem(at: url, to: dst)
                 let size = (try? fm.attributesOfItem(atPath: dst.path))?[.size] as? NSNumber
-                bump(size?.int64Value ?? 0)
+                let bytes = size?.int64Value ?? 0
+                bump(bytes)
+
+                copiedFiles += 1
+                copiedBytes += bytes
+                let topKey = rel.split(separator: "/").first.map(String.init) ?? rel
+                var stat = topStats[topKey] ?? (0, 0)
+                stat.files += 1
+                stat.bytes += bytes
+                topStats[topKey] = stat
             } catch {
                 appendLog("copy failed \(url.path): \(error.localizedDescription)")
             }
         }
-        note("完成: \(name)")
+
+        writeManifestEntry(
+            bundleID: name,
+            files: copiedFiles,
+            bytes: copiedBytes,
+            top: topStats
+                .map { ["path": $0.key, "files": $0.value.files, "bytes": $0.value.bytes] as [String: Any] }
+                .sorted { ($0["bytes"] as? Int64 ?? 0) > ($1["bytes"] as? Int64 ?? 0) }
+        )
+        note("完成: \(name)（\(copiedFiles) 个文件 / \(ByteCountFormatter.string(fromByteCount: copiedBytes, countStyle: .file))）")
     }
 }
