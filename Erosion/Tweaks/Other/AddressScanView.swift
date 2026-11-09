@@ -143,7 +143,16 @@ struct AddressScanView: View {
                     let bigAllowed = ["sqlite", "db", "mmkv", "realm", "plist", "json"].contains(ext)
                     let limit: Int64 = bigAllowed ? 60_000_000 : 2_000_000
                     guard size > 0, size < limit else { continue }
-                    guard let data = fm.contents(atPath: url.path) else { continue }
+                    let data: Data
+                    if size > 8_000_000, let fh = FileHandle(forReadingAtPath: url.path) {
+                        // 大文件只读前 8MB，避免 jetsam
+                        data = fh.readData(ofLength: 8_000_000)
+                        try? fh.close()
+                    } else if let full = fm.contents(atPath: url.path) {
+                        data = full
+                    } else {
+                        continue
+                    }
 
                     wFiles += 1
                     DispatchQueue.main.async { scannedFiles += 1 }
