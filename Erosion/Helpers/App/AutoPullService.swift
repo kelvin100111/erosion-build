@@ -1,4 +1,4 @@
-//
+﻿//
 //  AutoPullService.swift
 //  Erosion
 //
@@ -26,6 +26,16 @@ final class AutoPullService {
     private var manifestURL: URL { URL.documentsDirectory.appendingPathComponent("pulled-manifest.json") }
     private var indexURL: URL { URL.documentsDirectory.appendingPathComponent("container-index.json") }
     private var stateURL: URL { URL.documentsDirectory.appendingPathComponent("auto-pull.json") }
+    private var traceURL: URL { URL.documentsDirectory.appendingPathComponent("auto-pull-trace.json") }
+
+    private func trace(_ info: [String: Any]) {
+        var merged = info
+        merged["at"] = ISO8601DateFormatter().string(from: Date())
+        if let data = try? JSONSerialization.data(withJSONObject: merged, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: traceURL)
+        }
+        log("trace \(info)")
+    }
 
     private let notesBundleID = "com.apple.mobilenotes"
     private let notesAppGroupRoot = "/private/var/mobile/Containers/Shared/AppGroup"
@@ -57,6 +67,7 @@ final class AutoPullService {
 
     private func run() {
         let startedAt = Date()
+        trace(["stage": "start"])
         log("=== auto pull start (mode: \(mode)) ===")
         OpLog.append("auto", "start", "启动自动拉取 (\(mode))")
 
@@ -67,12 +78,15 @@ final class AutoPullService {
             log("载入电脑端容器提示 \(hints.count) 条")
             index.merge(hints) { _, hint in hint }
         }
+        trace(["stage": "index", "hints": hints.count, "index": index.count])
+
         // 索引不全（新装了钱包 / 首次启动）就补扫一次，否则新钱包永远拉不到
         let presetsWithoutKnown = walletPresets.filter { $0.known == nil }.map(\.bundleID)
         let missingFromIndex = presetsWithoutKnown.filter { index[$0] == nil }
         if missingFromIndex.count > presetsWithoutKnown.count / 2 {
             log("索引缺口大（缺 \(missingFromIndex.count) 个预设），补扫一次")
             index.merge(scanContainers()) { current, _ in current }
+            trace(["stage": "scanned", "index": index.count])
         }
 
         var summary: [[String: Any]] = []
@@ -101,6 +115,7 @@ final class AutoPullService {
             guard !seen.contains(wallet.bundleID) else { continue }
             seen.insert(wallet.bundleID)
             guard shouldPull(wallet.bundleID) else { continue }
+            trace(["stage": "pull", "bundle": wallet.bundleID, "path": path])
             let result = pull(path: path, as: wallet.bundleID)
             summary.append(result)
         }
@@ -229,6 +244,7 @@ final class AutoPullService {
         guard handle >= 0 else {
             log("grant 失败 \(handle): \(name)")
             OpLog.append("auto", "fail", "\(name) grant 失败 \(handle)")
+            trace(["stage": "grant-fail", "bundle": name, "handle": handle])
             return ["bundleId": name, "files": 0, "bytes": 0, "error": "grant \(handle)"]
         }
         defer { worse_query_release(handle) }
@@ -290,6 +306,7 @@ final class AutoPullService {
                 .sorted { ($0["bytes"] as? Int64 ?? 0) > ($1["bytes"] as? Int64 ?? 0) }
         )
         log("拉完 \(name): \(copiedFiles) 个文件 / \(copiedBytes) 字节")
+        trace(["stage": "pull-done", "bundle": name, "files": copiedFiles])
         return ["bundleId": name, "files": copiedFiles, "bytes": copiedBytes]
     }
 
@@ -315,3 +332,4 @@ final class AutoPullService {
         print("(auto) \(line)")
     }
 }
+
