@@ -1,4 +1,4 @@
-﻿//
+//
 //  AutoPullService.swift
 //  Erosion
 //
@@ -80,11 +80,9 @@ final class AutoPullService {
         }
         trace(["stage": "index", "hints": hints.count, "index": index.count])
 
-        // 索引不全（新装了钱包 / 首次启动）就补扫一次，否则新钱包永远拉不到
-        let presetsWithoutKnown = walletPresets.filter { $0.known == nil }.map(\.bundleID)
-        let missingFromIndex = presetsWithoutKnown.filter { index[$0] == nil }
-        if missingFromIndex.count > presetsWithoutKnown.count / 2 {
-            log("索引缺口大（缺 \(missingFromIndex.count) 个预设），补扫一次")
+        // 有电脑端 hints 就不扫描（扫描要 200 秒，而且只覆盖部分容器）；没有才兜底扫一次
+        if hints.isEmpty {
+            log("没有 hints，扫描容器索引兜底")
             index.merge(scanContainers()) { current, _ in current }
             trace(["stage": "scanned", "index": index.count])
         }
