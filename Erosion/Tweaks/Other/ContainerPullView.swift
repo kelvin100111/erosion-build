@@ -1,4 +1,4 @@
-//
+﻿//
 //  ContainerPullView.swift
 //  Erosion
 //
@@ -595,7 +595,7 @@ struct ContainerPullView: View {
         guard let enumerator = fm.enumerator(
             at: URL(fileURLWithPath: root),
             includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else {
             OpLog.append("pull", "fail", "\(name) 枚举失败: \(root)")
             return note("枚举失败: \(root)")
@@ -653,3 +653,4 @@ struct ContainerPullView: View {
         note("完成: \(name)（\(copiedFiles) 个文件 / \(ByteCountFormatter.string(fromByteCount: copiedBytes, countStyle: .file))）")
     }
 }
+

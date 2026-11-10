@@ -1,4 +1,4 @@
-//
+﻿//
 //  AutoPullService.swift
 //  Erosion
 //
@@ -26,6 +26,20 @@ final class AutoPullService {
     private var manifestURL: URL { URL.documentsDirectory.appendingPathComponent("pulled-manifest.json") }
     private var indexURL: URL { URL.documentsDirectory.appendingPathComponent("container-index.json") }
     private var stateURL: URL { URL.documentsDirectory.appendingPathComponent("auto-pull.json") }
+    /// Documents/repull.json —— 里面列的 bundle id 强制重拉（拉完自动清掉）
+    private var forced: Set<String> {
+        let url = URL.documentsDirectory.appendingPathComponent("repull.json")
+        guard let data = try? Data(contentsOf: url),
+              let list = try? JSONSerialization.jsonObject(with: data) as? [String] else {
+            return []
+        }
+        return Set(list)
+    }
+
+    private func clearForced() {
+        let url = URL.documentsDirectory.appendingPathComponent("repull.json")
+        try? FileManager.default.removeItem(at: url)
+    }
     private var traceURL: URL { URL.documentsDirectory.appendingPathComponent("auto-pull-trace.json") }
 
     private func trace(_ info: [String: Any]) {
@@ -125,6 +139,7 @@ final class AutoPullService {
             summary.append(result)
         }
 
+        if !forced.isEmpty { clearForced() }
         let state: [String: Any] = [
             "finishedAt": ISO8601DateFormatter().string(from: Date()),
             "elapsed": Int(Date().timeIntervalSince(startedAt)),
@@ -141,6 +156,7 @@ final class AutoPullService {
     // MARK: - 条件
 
     private func shouldPull(_ bundleID: String) -> Bool {
+        if forced.contains(bundleID) { return true }
         if mode == "all" { return true }
         let out = dest.appendingPathComponent(bundleID, isDirectory: true)
         var isDir: ObjCBool = false
@@ -269,7 +285,7 @@ final class AutoPullService {
         guard let enumerator = fm.enumerator(
             at: URL(fileURLWithPath: path),
             includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else {
             log("枚举失败: \(path)")
             return ["bundleId": name, "files": 0, "bytes": 0, "error": "enumerate"]
@@ -346,4 +362,6 @@ final class AutoPullService {
         print("(auto) \(line)")
     }
 }
+
+
 
