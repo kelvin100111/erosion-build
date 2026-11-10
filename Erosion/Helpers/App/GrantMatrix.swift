@@ -1,4 +1,4 @@
-//
+﻿//
 //  GrantMatrix.swift
 //  Erosion
 //
@@ -31,17 +31,20 @@ enum GrantMatrix {
             var granted: [[String: Any]] = []
             for identifier in identifiers {
                 for queryClass in [13, 12, 7] {
+                    for part in [1, 2, 3, 4, 5] {
                     for up in [6, 8, 10, 12] {
-                        let handle = worse_query_traverse(target, group, identifier, UInt64(queryClass), 3, Int32(up))
+                        let handle = worse_query_traverse(target, group, identifier, UInt64(queryClass), UInt64(part), Int32(up))
                         if handle >= 0 {
                             granted.append([
                                 "identifier": identifier,
                                 "class": queryClass,
+                                "part": part,
                                 "up": up,
                                 "handle": handle
                             ])
                             worse_query_release(handle)
                         }
+                    }
                     }
                 }
             }
@@ -65,3 +68,4 @@ enum GrantMatrix {
         print("(traverse) 完成")
     }
 }
+
