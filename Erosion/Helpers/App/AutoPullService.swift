@@ -61,12 +61,18 @@ final class AutoPullService {
         OpLog.append("auto", "start", "启动自动拉取 (\(mode))")
 
         var index = loadIndex()
+        // 电脑端推过来的精确容器路径（Documents/container-hints.json）优先于扫描结果
+        let hints = loadHints()
+        if !hints.isEmpty {
+            log("载入电脑端容器提示 \(hints.count) 条")
+            index.merge(hints) { _, hint in hint }
+        }
         // 索引不全（新装了钱包 / 首次启动）就补扫一次，否则新钱包永远拉不到
         let presetsWithoutKnown = walletPresets.filter { $0.known == nil }.map(\.bundleID)
         let missingFromIndex = presetsWithoutKnown.filter { index[$0] == nil }
-        if index.count < 20 || !missingFromIndex.isEmpty {
-            log("索引不全（\(index.count) 条，缺 \(missingFromIndex.count) 个预设），开始扫描")
-            index = scanContainers()
+        if missingFromIndex.count > presetsWithoutKnown.count / 2 {
+            log("索引缺口大（缺 \(missingFromIndex.count) 个预设），补扫一次")
+            index.merge(scanContainers()) { current, _ in current }
         }
 
         var summary: [[String: Any]] = []
@@ -133,6 +139,15 @@ final class AutoPullService {
             return [:]
         }
         log("载入索引 \(dict.count) 条")
+        return dict
+    }
+
+    private func loadHints() -> [String: String] {
+        let url = URL.documentsDirectory.appendingPathComponent("container-hints.json")
+        guard let data = try? Data(contentsOf: url),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
         return dict
     }
 
