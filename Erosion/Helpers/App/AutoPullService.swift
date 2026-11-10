@@ -82,6 +82,12 @@ final class AutoPullService {
     private func run() {
         let startedAt = Date()
         trace(["stage": "start"])
+        // 手动触发：Documents/grant-matrix.flag 存在就跑一遍 class/part 矩阵
+        let flag = URL.documentsDirectory.appendingPathComponent("grant-matrix.flag")
+        if FileManager.default.fileExists(atPath: flag.path) {
+            try? FileManager.default.removeItem(at: flag)
+            GrantMatrix.run(group: group)
+        }
         log("=== auto pull start (mode: \(mode)) ===")
         OpLog.append("auto", "start", "启动自动拉取 (\(mode))")
 
@@ -381,6 +387,7 @@ final class AutoPullService {
         print("(auto) \(line)")
     }
 }
+
 
 
 
