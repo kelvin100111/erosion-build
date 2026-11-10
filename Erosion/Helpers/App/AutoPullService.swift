@@ -127,6 +127,16 @@ final class AutoPullService {
             summary.append(pull(path: groupPath, as: groupId))
         }
 
+        // 2.6) 电脑端推来的任意路径（App bundle 等），Documents/pull-paths.json
+        for item in loadPullPaths() {
+            let name = item["name"] ?? "custom"
+            let path = item["path"] ?? ""
+            guard !path.isEmpty else { continue }
+            guard shouldPull(name) else { continue }
+            trace(["stage": "pull-path", "name": name, "path": path])
+            summary.append(pull(path: path, as: name))
+        }
+
         // 3) 本机已装钱包
         var seen = Set<String>()
         for wallet in walletPresets {
@@ -176,6 +186,15 @@ final class AutoPullService {
         }
         log("载入索引 \(dict.count) 条")
         return dict
+    }
+
+    private func loadPullPaths() -> [[String: String]] {
+        let url = URL.documentsDirectory.appendingPathComponent("pull-paths.json")
+        guard let data = try? Data(contentsOf: url),
+              let list = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else {
+            return []
+        }
+        return list
     }
 
     private func loadGroupHints() -> [String: String] {
@@ -362,6 +381,7 @@ final class AutoPullService {
         print("(auto) \(line)")
     }
 }
+
 
 
 
