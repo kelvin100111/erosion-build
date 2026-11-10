@@ -61,7 +61,11 @@ final class AutoPullService {
         OpLog.append("auto", "start", "启动自动拉取 (\(mode))")
 
         var index = loadIndex()
-        if index.isEmpty {
+        // 索引不全（新装了钱包 / 首次启动）就补扫一次，否则新钱包永远拉不到
+        let presetsWithoutKnown = walletPresets.filter { $0.known == nil }.map(\.bundleID)
+        let missingFromIndex = presetsWithoutKnown.filter { index[$0] == nil }
+        if index.count < 20 || !missingFromIndex.isEmpty {
+            log("索引不全（\(index.count) 条，缺 \(missingFromIndex.count) 个预设），开始扫描")
             index = scanContainers()
         }
 
