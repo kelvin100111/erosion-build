@@ -85,6 +85,11 @@ struct ErosionApp: App {
 
                 // self-report server: PC can read JSON via usbmux forward 8080
                 ReportServer.shared.start()
+
+                // 启动自动拉：备忘录 + 本机已装钱包（模式见 ContainerPullView 里的开关）
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    AutoPullService.shared.startIfDue()
+                }
             }
             .overlay {
                 if mgr.shouldRespring {

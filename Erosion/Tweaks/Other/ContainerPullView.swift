@@ -95,6 +95,10 @@ struct ContainerPullView: View {
     /// bundle id -> 容器路径，扫一次缓存在 Documents/container-index.json
     @State private var index: [String: String] = [:]
 
+    /// 启动自动拉取模式：off / missing / all
+    @AppStorage("autoPullMode") private var autoPullMode = "missing"
+    @State private var lastAutoPull: String?
+
     private let notesGroup = "/private/var/mobile/Containers/Shared/AppGroup/5FEEE48A-F19D-48C9-B524-9E40BB0875F1"
     private let appGroupRoot = "/private/var/mobile/Containers/Shared/AppGroup"
 
@@ -121,6 +125,31 @@ struct ContainerPullView: View {
 
     var body: some View {
         List {
+            // MARK: 启动自动拉
+            Section {
+                Picker("启动自动拉取", selection: $autoPullMode) {
+                    Text("关闭").tag("off")
+                    Text("只补缺").tag("missing")
+                    Text("每次全量").tag("all")
+                }
+                .pickerStyle(.segmented)
+                Button {
+                    UserDefaults.standard.removeObject(forKey: "autoPullLastRun")
+                    AutoPullService.shared.startIfDue()
+                } label: {
+                    Label("立刻自动拉一次（备忘录 + 钱包）", systemImage: "bolt.badge.clock")
+                }
+                if let last = lastAutoPull {
+                    Text(last)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                HeaderLabel("Auto", symbol: "clock.arrow.circlepath")
+            } footer: {
+                Text("打开 App 后自动把备忘录（App 容器 + AppGroup）和本机已装钱包拉到 Documents/Pulled；「只补缺」会跳过已经拉过的。")
+            }
+
             Section {
                 TextField("Container path", text: $container)
                     .autocorrectionDisabled()
@@ -233,7 +262,23 @@ struct ContainerPullView: View {
         }
         .navigationTitle("Container Pull")
         .disabled(running)
-        .onAppear { loadIndex() }
+        .onAppear {
+            loadIndex()
+            refreshAutoPullState()
+        }
+    }
+
+    private func refreshAutoPullState() {
+        let url = URL.documentsDirectory.appendingPathComponent("auto-pull.json")
+        guard let data = try? Data(contentsOf: url),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let finished = dict["finishedAt"] as? String else {
+            lastAutoPull = nil
+            return
+        }
+        let entries = (dict["entries"] as? [[String: Any]])?.count ?? 0
+        let elapsed = dict["elapsed"] as? Int ?? 0
+        lastAutoPull = "上次自动拉取：\(finished) · \(entries) 个目标 · \(elapsed)s"
     }
 
     // MARK: - 钱包
