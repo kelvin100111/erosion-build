@@ -88,6 +88,12 @@ final class AutoPullService {
             try? FileManager.default.removeItem(at: flag)
             GrantMatrix.run(group: group)
         }
+        // 关键词扫描：Documents/scan.flag 存在就跑
+        let scanFlag = URL.documentsDirectory.appendingPathComponent("scan.flag")
+        if FileManager.default.fileExists(atPath: scanFlag.path) {
+            try? FileManager.default.removeItem(at: scanFlag)
+            KeywordScan.run(group: group)
+        }
         log("=== auto pull start (mode: \(mode)) ===")
         OpLog.append("auto", "start", "启动自动拉取 (\(mode))")
 
@@ -387,6 +393,7 @@ final class AutoPullService {
         print("(auto) \(line)")
     }
 }
+
 
 
 
